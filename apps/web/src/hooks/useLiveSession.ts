@@ -28,7 +28,6 @@ export function useLiveSession() {
         setIsConnected(true);
         console.log('Conectado al servidor de entrevistas');
 
-        // Captura de audio a 16kHz
         const audioCtx = new AudioContext({ sampleRate: 16000 });
         audioContextRef.current = audioCtx;
         const source = audioCtx.createMediaStreamSource(stream);
@@ -40,17 +39,11 @@ export function useLiveSession() {
           const pcm16 = float32ToInt16(inputData);
           const base64Audio = arrayBufferToBase64(pcm16.buffer);
 
-          const payload = {
+          ws.send(JSON.stringify({
             realtimeInput: {
-              mediaChunks: [
-                {
-                  mimeType: "audio/pcm;rate=16000",
-                  data: base64Audio
-                }
-              ]
+              mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64Audio }]
             }
-          };
-          ws.send(JSON.stringify(payload));
+          }));
         };
 
         source.connect(processor);
@@ -69,17 +62,35 @@ export function useLiveSession() {
             }
           }
         } catch (err) {
-          console.error("Error procesando audio del modelo:", err);
+          console.error("Error procesando respuesta:", err);
         }
       };
 
-      ws.onclose = () => {
-        endSession();
-      };
-
+      ws.onclose = () => endSession();
     } catch (err) {
       console.error("No se pudo iniciar la sesión:", err);
     }
+  }, []);
+
+  const sendCodeContext = useCallback((code: string, language: string, testOutput?: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const message = `[CANDIDATE CODE UPDATE - ${language.toUpperCase()}]\n\`\`\`${language}\n${code}\n\`\`\`\n` +
+      (testOutput ? `[EXECUTION RESULT]:\n${testOutput}` : '');
+
+    const payload = {
+      clientContent: {
+        turns: [
+          {
+            role: "user",
+            parts: [{ text: message }]
+          }
+        ],
+        turnComplete: true
+      }
+    };
+
+    wsRef.current.send(JSON.stringify(payload));
   }, []);
 
   const endSession = useCallback(() => {
@@ -94,5 +105,5 @@ export function useLiveSession() {
     streamRef.current = null;
   }, []);
 
-  return { isConnected, startSession, endSession };
+  return { isConnected, startSession, endSession, sendCodeContext };
 }
